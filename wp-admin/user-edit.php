@@ -11,6 +11,10 @@ require_once('./admin.php');
 
 wp_reset_vars( array( 'action', 'user_id', 'wp_http_referer' ) );
 
+if ( wp_is_mobile() )
+	wp_enqueue_script( 'jquery-touch-punch' );
+	
+
 $user_id = (int) $user_id;
 $current_user = wp_get_current_user();
 if ( ! defined( 'IS_PROFILE_PAGE' ) )
@@ -23,7 +27,10 @@ elseif ( ! $user_id && ! IS_PROFILE_PAGE )
 elseif ( ! get_userdata( $user_id ) )
 	wp_die( __('Invalid user ID.') );
 
+wp_enqueue_script('post');
 wp_enqueue_script('user-profile');
+add_thickbox();
+wp_enqueue_media();
 
 $title = IS_PROFILE_PAGE ? __('Profile') : __('Edit User');
 if ( current_user_can('edit_users') && !IS_PROFILE_PAGE )
@@ -58,6 +65,336 @@ $wp_http_referer = remove_query_arg(array('update', 'delete_count'), $wp_http_re
 
 $user_can_edit = current_user_can( 'edit_posts' ) || current_user_can( 'edit_pages' );
 
+
+$profileuser = get_user_to_edit($user_id);
+
+/*
+**	Create User Update/Submit & Password Meta Box
+*/
+
+function user_submit_meta_box( $user_id ) {
+	global $action;
+	
+	$user = get_userdata($user_id);
+?>
+
+<div id="submituser">
+	<div id="minor-publishing">
+		<?php // Hidden submit button early on so that the browser chooses the right button when form is submitted with Return key ?>
+		<div style="display:none;">
+			<?php submit_button( IS_PROFILE_PAGE ? __('Update Profile') : __('Update User') ); ?>
+		</div>
+		<div id="misc-publishing-actions">
+			<?php
+	// translators: Publish box date format, see http://php.net/date
+	$datef = __( 'M j, Y @ G:i' );
+	$stamp = __('Added on: <b>%1$s</b>');
+	$date = date_i18n( $datef, strtotime( $user->user_registered ) );
+	?>
+			<div class="misc-pub-section curtime"> <span id="timestamp"><?php printf($stamp, $date); ?></span> </div>
+			<!-- .misc-pub-section --> 
+		</div>
+		<!-- #misc-publishing-actions -->
+		<div class="clear"></div>
+	</div>
+	<!-- #minor-publishing -->
+	
+	<div id="major-publishing-actions">
+		<?php
+$show_password_fields = apply_filters('show_password_fields', true, $profileuser);
+if ( $show_password_fields ) :
+?>
+		<div class="pass-fields">
+			<label for="pass1">
+				<?php _e('New Password'); ?>
+			</label>
+			<br />
+			<input class="hidden" value=" " />
+			<!-- #24364 workaround -->
+			<input style="text-align:left;" type="password" name="pass1" id="pass1" size="16" value="" autocomplete="off" />
+			<div class="clear"></div>
+			<label for="pass2">
+				<?php _e('Repeat New Password'); ?>
+			</label>
+			<br />
+			<input style="text-align:left;" name="pass2" type="password" id="pass2" size="16" value="" autocomplete="off" />
+			<br />
+			<div id="pass-strength-result">
+				<?php _e('Strength indicator'); ?>
+			</div>
+		</div>
+		<?php endif; ?>
+		<div id="delete-action">
+			<?php
+	if ( current_user_can( 'delete_users', $user_id) ){
+			echo "<a class='submitdelete deletion' href='" . wp_nonce_url(admin_url(). 'users.php?user='. $user_id, 'bulk-users','action=delete&_wpnonce') . "'>" . __( 'Delete User' ) . "</a>";
+	}
+	?>
+		</div>
+		<div id="publishing-action"> <span class="spinner"></span>
+			<input type="hidden" name="action" value="update" />
+			<input type="hidden" name="user_id" id="user_id" value="<?php echo esc_attr($user_id); ?>" />
+			<?php submit_button( IS_PROFILE_PAGE ? __('Update Profile') : __('Update User') ); ?>
+		</div>
+		<div class="clear"></div>
+	</div>
+	<!-- #major-publishing-actions --> 
+	
+</div>
+<?php
+}
+
+/*
+**	Create User Personal Options Meta Box
+*/
+
+function user_personal_options_meta_box( $user_id ) {
+global $_wp_admin_css_colors,$profileuser; ?>
+<table class="form-table">
+	<?php if ( rich_edit_exists() && !( IS_PROFILE_PAGE && !$user_can_edit ) ) : // don't bother showing the option if the editor has been removed ?>
+	<tr>
+		<th scope="row"><?php _e('Visual Editor')?></th>
+		<td><label for="rich_editing">
+				<input name="rich_editing" type="checkbox" id="rich_editing" value="false" <?php checked('false', $profileuser->rich_editing); ?> />
+				<?php _e('Disable the visual editor when writing'); ?>
+			</label></td>
+	</tr>
+	<?php endif; ?>
+	<?php if ( count($_wp_admin_css_colors) > 1 && has_action('admin_color_scheme_picker') ) : ?>
+	<tr>
+		<th scope="row"><?php _e('Admin Color Scheme')?></th>
+		<td><?php do_action( 'admin_color_scheme_picker' ); ?></td>
+	</tr>
+	<?php
+endif; // $_wp_admin_css_colors
+if ( !( IS_PROFILE_PAGE && !$user_can_edit ) ) : ?>
+	<tr>
+		<th scope="row"><?php _e( 'Keyboard Shortcuts' ); ?></th>
+		<td><label for="comment_shortcuts">
+				<input type="checkbox" name="comment_shortcuts" id="comment_shortcuts" value="true" <?php if ( !empty($profileuser->comment_shortcuts) ) checked('true', $profileuser->comment_shortcuts); ?> />
+				<?php _e('Enable keyboard shortcuts for comment moderation.'); ?>
+			</label>
+			<?php _e('<a href="http://codex.wordpress.org/Keyboard_Shortcuts" target="_blank">More information</a>'); ?></td>
+	</tr>
+	<?php endif; ?>
+	<tr class="show-admin-bar">
+		<th scope="row"><?php _e('Toolbar')?></th>
+		<td><fieldset>
+				<legend class="screen-reader-text"><span>
+				<?php _e('Toolbar') ?>
+				</span></legend>
+				<label for="admin_bar_front">
+					<input name="admin_bar_front" type="checkbox" id="admin_bar_front" value="1"<?php checked( _get_admin_bar_pref( 'front', $profileuser->ID ) ); ?> />
+					<?php _e( 'Show Toolbar when viewing site' ); ?>
+				</label>
+				<br />
+			</fieldset></td>
+	</tr>
+	<?php do_action('personal_options', $profileuser); ?>
+</table>
+<?php
+	if ( IS_PROFILE_PAGE )
+		do_action('profile_personal_options', $profileuser);
+?>
+<?php 
+}
+
+/*
+**	Create User Name Meta Box
+*/
+
+function user_name_meta_box( $user_id ) { 
+global $profileuser;?>
+<table class="form-table">
+	<tr>
+		<th><label for="user_login">
+				<?php _e('Username'); ?>
+			</label></th>
+		<td><input type="text" name="user_login" id="user_login" value="<?php echo esc_attr($profileuser->user_login); ?>" disabled="disabled" class="regular-text" />
+			<span class="description">
+			<?php _e('Usernames cannot be changed.'); ?>
+			</span></td>
+	</tr>
+	<?php
+
+ if ( !IS_PROFILE_PAGE && !is_network_admin() ) : ?>
+	<tr>
+		<th><label for="role">
+				<?php _e('Role') ?>
+			</label></th>
+		<td><select name="role" id="role">
+				<?php
+// Compare user role against currently editable roles
+$user_roles = array_intersect( array_values( $profileuser->roles ), array_keys( get_editable_roles() ) );
+$user_role  = array_shift( $user_roles );
+
+// print the full list of roles with the primary one selected.
+wp_dropdown_roles($user_role);
+
+// print the 'no role' option. Make it selected if the user has no role yet.
+if ( $user_role )
+	echo '<option value="">' . __('&mdash; No role for this site &mdash;') . '</option>';
+else
+	echo '<option value="" selected="selected">' . __('&mdash; No role for this site &mdash;') . '</option>';
+?>
+			</select></td>
+	</tr>
+	<?php endif; //!IS_PROFILE_PAGE
+
+if ( is_multisite() && is_network_admin() && ! IS_PROFILE_PAGE && current_user_can( 'manage_network_options' ) && !isset($super_admins) ) { ?>
+	<tr>
+		<th><?php _e('Super Admin'); ?></th>
+		<td><?php if ( $profileuser->user_email != get_site_option( 'admin_email' ) || ! is_super_admin( $profileuser->ID ) ) : ?>
+			<p>
+				<label>
+					<input type="checkbox" id="super_admin" name="super_admin"<?php checked( is_super_admin( $profileuser->ID ) ); ?> />
+					<?php _e( 'Grant this user super admin privileges for the Network.' ); ?>
+				</label>
+			</p>
+			<?php else : ?>
+			<p>
+				<?php _e( 'Super admin privileges cannot be removed because this user has the network admin email.' ); ?>
+			</p>
+			<?php endif; ?></td>
+	</tr>
+	<?php } ?>
+	<tr>
+		<th><label for="first_name">
+				<?php _e('First Name') ?>
+			</label></th>
+		<td><input type="text" name="first_name" id="first_name" value="<?php echo esc_attr($profileuser->first_name) ?>" class="regular-text" /></td>
+	</tr>
+	<tr>
+		<th><label for="last_name">
+				<?php _e('Last Name') ?>
+			</label></th>
+		<td><input type="text" name="last_name" id="last_name" value="<?php echo esc_attr($profileuser->last_name) ?>" class="regular-text" /></td>
+	</tr>
+	<tr>
+		<th><label for="nickname">
+				<?php _e('Nickname'); ?>
+				<span class="description">
+				<?php _e('(required)'); ?>
+				</span></label></th>
+		<td><input type="text" name="nickname" id="nickname" value="<?php echo esc_attr($profileuser->nickname) ?>" class="regular-text" /></td>
+	</tr>
+	<?php 
+	
+	/*
+	**	Create action hook to add more user detail fields
+	*/
+	
+	do_action( 'additional_user_details', $profileuser);
+	?>
+	<tr>
+		<th><label for="display_name">
+				<?php _e('Display name publicly as') ?>
+			</label></th>
+		<td><select name="display_name" id="display_name">
+				<?php
+			$public_display = array();
+			$public_display['display_nickname']  = $profileuser->nickname;
+			$public_display['display_username']  = $profileuser->user_login;
+
+			if ( !empty($profileuser->first_name) )
+				$public_display['display_firstname'] = $profileuser->first_name;
+
+			if ( !empty($profileuser->last_name) )
+				$public_display['display_lastname'] = $profileuser->last_name;
+
+			if ( !empty($profileuser->first_name) && !empty($profileuser->last_name) ) {
+				$public_display['display_firstlast'] = $profileuser->first_name . ' ' . $profileuser->last_name;
+				$public_display['display_lastfirst'] = $profileuser->last_name . ' ' . $profileuser->first_name;
+			}
+
+			if ( !in_array( $profileuser->display_name, $public_display ) ) // Only add this if it isn't duplicated elsewhere
+				$public_display = array( 'display_displayname' => $profileuser->display_name ) + $public_display;
+
+			$public_display = array_map( 'trim', $public_display );
+			$public_display = array_unique( $public_display );
+
+			foreach ( $public_display as $id => $item ) {
+		?>
+				<option <?php selected( $profileuser->display_name, $item ); ?>><?php echo $item; ?></option>
+				<?php
+			}
+		?>
+			</select></td>
+	</tr>
+</table>
+<?php 
+}
+	
+/*
+**	Create User Contact Meta Box
+*/
+
+function user_contact_meta_box( $user_id ){
+global $profileuser; ?>
+<table class="form-table">
+	<tr>
+		<th><label for="email">
+				<?php _e('E-mail'); ?>
+				<span class="description">
+				<?php _e('(required)'); ?>
+				</span></label></th>
+		<td><input type="text" name="email" id="email" value="<?php echo esc_attr($profileuser->user_email) ?>" class="regular-text" />
+			<?php
+	$new_email = get_option( $current_user->ID . '_new_email' );
+	if ( $new_email && $new_email['newemail'] != $current_user->user_email && $profileuser->ID == $current_user->ID ) : ?>
+			<div class="updated inline">
+				<p><?php printf( __('There is a pending change of your e-mail to <code>%1$s</code>. <a href="%2$s">Cancel</a>'), $new_email['newemail'], esc_url( self_admin_url( 'profile.php?dismiss=' . $current_user->ID . '_new_email' ) ) ); ?></p>
+			</div>
+			<?php endif; ?></td>
+	</tr>
+	<tr>
+		<th><label for="url">
+				<?php _e('Website') ?>
+			</label></th>
+		<td><input type="text" name="url" id="url" value="<?php echo esc_attr($profileuser->user_url) ?>" class="regular-text code" /></td>
+	</tr>
+	<?php
+	foreach (_wp_get_user_contactmethods( $profileuser ) as $name => $desc) {
+?>
+	<tr>
+		<th><label for="<?php echo $name; ?>"><?php echo apply_filters('user_'.$name.'_label', $desc); ?></label></th>
+		<td><input type="text" name="<?php echo $name; ?>" id="<?php echo $name; ?>" value="<?php echo esc_attr($profileuser->$name) ?>" class="regular-text" /></td>
+	</tr>
+	<?php
+	}
+?>
+</table>
+<?php
+	
+	/*
+	**	Create action hook to add more user contact options (i.e. Address)
+	*/
+	
+	do_action( 'additional_contact_methods', $profileuser);
+}
+
+
+/*
+**	Create User Bio Meta Box
+*/
+
+function user_bio_meta_box( $user_id ){
+global $profileuser; ?>
+<table class="form-table">
+	<tr>
+		<th><label for="description">
+				<?php _e('Biographical Info'); ?>
+			</label></th>
+		<td><textarea name="description" id="description" rows="5" cols="30"><?php echo $profileuser->description; // textarea_escaped ?></textarea>
+			<br />
+			<span class="description">
+			<?php _e('Share a little biographical information to fill out your profile. This may be shown publicly.'); ?>
+			</span></td>
+	</tr>
+</table>
+<?php	
+}
+
 /**
  * Optional SSL preference that can be turned on by hooking to the 'personal_options' action.
  *
@@ -67,10 +404,13 @@ $user_can_edit = current_user_can( 'edit_posts' ) || current_user_can( 'edit_pag
  */
 function use_ssl_preference($user) {
 ?>
-	<tr>
-		<th scope="row"><?php _e('Use https')?></th>
-		<td><label for="use_ssl"><input name="use_ssl" type="checkbox" id="use_ssl" value="1" <?php checked('1', $user->use_ssl); ?> /> <?php _e('Always use https when visiting the admin'); ?></label></td>
-	</tr>
+<tr>
+	<th scope="row"><?php _e('Use https')?></th>
+	<td><label for="use_ssl">
+			<input name="use_ssl" type="checkbox" id="use_ssl" value="1" <?php checked('1', $user->use_ssl); ?> />
+			<?php _e('Always use https when visiting the admin'); ?>
+		</label></td>
+</tr>
 <?php
 }
 
@@ -154,279 +494,110 @@ if ( !current_user_can('edit_user', $user_id) )
 	wp_die(__('You do not have permission to edit this user.'));
 
 include (ABSPATH . 'wp-admin/admin-header.php');
+
+/*
+**	Display User Meta Boxes
+*/
+
+require_once(ABSPATH . 'wp-admin/includes/meta-boxes.php');
+
+add_meta_box( 'updatediv', __('Save'), 'user_submit_meta_box', null, 'side', 'core' );
+add_meta_box( 'personaldiv', __('Personal Options'), 'user_personal_options_meta_box', null, 'normal', 'core' );
+add_meta_box( 'namediv', __('Name'), 'user_name_meta_box', null, 'normal', 'core' );
+add_meta_box( 'contactdiv', __('Contact Info'), 'user_contact_meta_box', null, 'normal', 'core' );
+add_meta_box( 'biodiv', IS_PROFILE_PAGE ? __('About Yourself') : __('About the user'), 'user_bio_meta_box', null, 'normal', 'core' );
+
+
+if ( count( $profileuser->caps ) > count( $profileuser->roles ) && apply_filters( 'additional_capabilities_display', true, $profileuser ) ) :
+	add_meta_box( 'biodiv', __('Additional Capabilities'), 'user_additional_capabilities_meta_box', null, 'normal', 'core' );
+endif;
+
+if ( IS_PROFILE_PAGE )
+	do_action( 'show_user_profile', $profileuser );
+else
+	do_action( 'edit_user_profile', $profileuser );
+
+add_screen_option('layout_columns', array('max' => 2, 'default' => 2) );
 ?>
-
 <?php if ( !IS_PROFILE_PAGE && is_super_admin( $profileuser->ID ) && current_user_can( 'manage_network_options' ) ) { ?>
-	<div class="updated"><p><strong><?php _e('Important:'); ?></strong> <?php _e('This user has super admin privileges.'); ?></p></div>
-<?php } ?>
-<?php if ( isset($_GET['updated']) ) : ?>
-<div id="message" class="updated">
-	<?php if ( IS_PROFILE_PAGE ) : ?>
-	<p><strong><?php _e('Profile updated.') ?></strong></p>
-	<?php else: ?>
-	<p><strong><?php _e('User updated.') ?></strong></p>
-	<?php endif; ?>
-	<?php if ( $wp_http_referer && !IS_PROFILE_PAGE ) : ?>
-	<p><a href="<?php echo esc_url( $wp_http_referer ); ?>"><?php _e('&larr; Back to Users'); ?></a></p>
-	<?php endif; ?>
+<div class="updated">
+	<p><strong>
+		<?php _e('Important:'); ?>
+		</strong>
+		<?php _e('This user has super admin privileges.'); ?>
+	</p>
 </div>
-<?php endif; ?>
-<?php if ( isset( $errors ) && is_wp_error( $errors ) ) : ?>
-<div class="error"><p><?php echo implode( "</p>\n<p>", $errors->get_error_messages() ); ?></p></div>
-<?php endif; ?>
-
+<?php } ?>
 <div class="wrap" id="profile-page">
-<?php screen_icon(); ?>
-<h2>
-<?php
+	<?php screen_icon(); ?>
+	<h2>
+		<?php if ( isset( $errors ) && is_wp_error( $errors ) ) : ?>
+		<div class="error">
+			<p><?php echo implode( "</p>\n<p>", $errors->get_error_messages() ); ?></p>
+		</div>
+		<?php endif; ?>
+		<?php if ( isset($_GET['updated']) ) : ?>
+		<div id="message" class="updated">
+			<?php if ( IS_PROFILE_PAGE ) : ?>
+			<p><strong>
+				<?php _e('Profile updated.') ?>
+				</strong></p>
+			<?php else: ?>
+			<p><strong>
+				<?php _e('User updated.') ?>
+				</strong></p>
+			<?php endif; ?>
+			<?php if ( $wp_http_referer && !IS_PROFILE_PAGE ) : ?>
+			<p><a href="<?php echo esc_url( $wp_http_referer ); ?>">
+				<?php _e('&larr; Back to Users'); ?>
+				</a></p>
+			<?php endif; ?>
+		</div>
+		<?php endif; ?>
+		<?php
 echo esc_html( $title );
 if ( ! IS_PROFILE_PAGE ) {
 	if ( current_user_can( 'create_users' ) ) { ?>
 		<a href="user-new.php" class="add-new-h2"><?php echo esc_html_x( 'Add New', 'user' ); ?></a>
-	<?php } elseif ( is_multisite() && current_user_can( 'promote_users' ) ) { ?>
+		<?php } elseif ( is_multisite() && current_user_can( 'promote_users' ) ) { ?>
 		<a href="user-new.php" class="add-new-h2"><?php echo esc_html_x( 'Add Existing', 'user' ); ?></a>
-	<?php }
+		<?php }
 } ?>
-</h2>
-
-<form id="your-profile" action="<?php echo esc_url( self_admin_url( IS_PROFILE_PAGE ? 'profile.php' : 'user-edit.php' ) ); ?>" method="post"<?php do_action('user_edit_form_tag'); ?>>
-<?php wp_nonce_field('update-user_' . $user_id) ?>
-<?php if ( $wp_http_referer ) : ?>
-	<input type="hidden" name="wp_http_referer" value="<?php echo esc_url($wp_http_referer); ?>" />
-<?php endif; ?>
-<p>
-<input type="hidden" name="from" value="profile" />
-<input type="hidden" name="checkuser_id" value="<?php echo $user_ID ?>" />
-</p>
-
-<h3><?php _e('Personal Options'); ?></h3>
-
-<table class="form-table">
-<?php if ( rich_edit_exists() && !( IS_PROFILE_PAGE && !$user_can_edit ) ) : // don't bother showing the option if the editor has been removed ?>
-	<tr>
-		<th scope="row"><?php _e('Visual Editor')?></th>
-		<td><label for="rich_editing"><input name="rich_editing" type="checkbox" id="rich_editing" value="false" <?php if ( ! empty( $profileuser->rich_editing ) ) checked( 'false', $profileuser->rich_editing ); ?> /> <?php _e( 'Disable the visual editor when writing' ); ?></label></td>
-	</tr>
-<?php endif; ?>
-<?php if ( count($_wp_admin_css_colors) > 1 && has_action('admin_color_scheme_picker') ) : ?>
-<tr>
-<th scope="row"><?php _e('Admin Color Scheme')?></th>
-<td><?php do_action( 'admin_color_scheme_picker' ); ?></td>
-</tr>
-<?php
-endif; // $_wp_admin_css_colors
-if ( !( IS_PROFILE_PAGE && !$user_can_edit ) ) : ?>
-<tr>
-<th scope="row"><?php _e( 'Keyboard Shortcuts' ); ?></th>
-<td><label for="comment_shortcuts"><input type="checkbox" name="comment_shortcuts" id="comment_shortcuts" value="true" <?php if ( ! empty( $profileuser->comment_shortcuts ) ) checked( 'true', $profileuser->comment_shortcuts ); ?> /> <?php _e('Enable keyboard shortcuts for comment moderation.'); ?></label> <?php _e('<a href="http://codex.wordpress.org/Keyboard_Shortcuts" target="_blank">More information</a>'); ?></td>
-</tr>
-<?php endif; ?>
-<tr class="show-admin-bar">
-<th scope="row"><?php _e('Toolbar')?></th>
-<td><fieldset><legend class="screen-reader-text"><span><?php _e('Toolbar') ?></span></legend>
-<label for="admin_bar_front">
-<input name="admin_bar_front" type="checkbox" id="admin_bar_front" value="1"<?php checked( _get_admin_bar_pref( 'front', $profileuser->ID ) ); ?> />
-<?php _e( 'Show Toolbar when viewing site' ); ?></label><br />
-</fieldset>
-</td>
-</tr>
-<?php do_action('personal_options', $profileuser); ?>
-</table>
-<?php
-	if ( IS_PROFILE_PAGE )
-		do_action('profile_personal_options', $profileuser);
-?>
-
-<h3><?php _e('Name') ?></h3>
-
-<table class="form-table">
-	<tr>
-		<th><label for="user_login"><?php _e('Username'); ?></label></th>
-		<td><input type="text" name="user_login" id="user_login" value="<?php echo esc_attr($profileuser->user_login); ?>" disabled="disabled" class="regular-text" /> <span class="description"><?php _e('Usernames cannot be changed.'); ?></span></td>
-	</tr>
-
-<?php if ( !IS_PROFILE_PAGE && !is_network_admin() ) : ?>
-<tr><th><label for="role"><?php _e('Role') ?></label></th>
-<td><select name="role" id="role">
-<?php
-// Compare user role against currently editable roles
-$user_roles = array_intersect( array_values( $profileuser->roles ), array_keys( get_editable_roles() ) );
-$user_role  = array_shift( $user_roles );
-
-// print the full list of roles with the primary one selected.
-wp_dropdown_roles($user_role);
-
-// print the 'no role' option. Make it selected if the user has no role yet.
-if ( $user_role )
-	echo '<option value="">' . __('&mdash; No role for this site &mdash;') . '</option>';
-else
-	echo '<option value="" selected="selected">' . __('&mdash; No role for this site &mdash;') . '</option>';
-?>
-</select></td></tr>
-<?php endif; //!IS_PROFILE_PAGE
-
-if ( is_multisite() && is_network_admin() && ! IS_PROFILE_PAGE && current_user_can( 'manage_network_options' ) && !isset($super_admins) ) { ?>
-<tr><th><?php _e('Super Admin'); ?></th>
-<td>
-<?php if ( $profileuser->user_email != get_site_option( 'admin_email' ) || ! is_super_admin( $profileuser->ID ) ) : ?>
-<p><label><input type="checkbox" id="super_admin" name="super_admin"<?php checked( is_super_admin( $profileuser->ID ) ); ?> /> <?php _e( 'Grant this user super admin privileges for the Network.' ); ?></label></p>
-<?php else : ?>
-<p><?php _e( 'Super admin privileges cannot be removed because this user has the network admin email.' ); ?></p>
-<?php endif; ?>
-</td></tr>
-<?php } ?>
-
-<tr>
-	<th><label for="first_name"><?php _e('First Name') ?></label></th>
-	<td><input type="text" name="first_name" id="first_name" value="<?php echo esc_attr($profileuser->first_name) ?>" class="regular-text" /></td>
-</tr>
-
-<tr>
-	<th><label for="last_name"><?php _e('Last Name') ?></label></th>
-	<td><input type="text" name="last_name" id="last_name" value="<?php echo esc_attr($profileuser->last_name) ?>" class="regular-text" /></td>
-</tr>
-
-<tr>
-	<th><label for="nickname"><?php _e('Nickname'); ?> <span class="description"><?php _e('(required)'); ?></span></label></th>
-	<td><input type="text" name="nickname" id="nickname" value="<?php echo esc_attr($profileuser->nickname) ?>" class="regular-text" /></td>
-</tr>
-
-<tr>
-	<th><label for="display_name"><?php _e('Display name publicly as') ?></label></th>
-	<td>
-		<select name="display_name" id="display_name">
+	</h2>
+	<form id="your-profile" action="<?php echo esc_url( self_admin_url( IS_PROFILE_PAGE ? 'profile.php' : 'user-edit.php' ) ); ?>" method="post"<?php do_action('user_edit_form_tag'); ?>>
 		<?php
-			$public_display = array();
-			$public_display['display_nickname']  = $profileuser->nickname;
-			$public_display['display_username']  = $profileuser->user_login;
-
-			if ( !empty($profileuser->first_name) )
-				$public_display['display_firstname'] = $profileuser->first_name;
-
-			if ( !empty($profileuser->last_name) )
-				$public_display['display_lastname'] = $profileuser->last_name;
-
-			if ( !empty($profileuser->first_name) && !empty($profileuser->last_name) ) {
-				$public_display['display_firstlast'] = $profileuser->first_name . ' ' . $profileuser->last_name;
-				$public_display['display_lastfirst'] = $profileuser->last_name . ' ' . $profileuser->first_name;
-			}
-
-			if ( !in_array( $profileuser->display_name, $public_display ) ) // Only add this if it isn't duplicated elsewhere
-				$public_display = array( 'display_displayname' => $profileuser->display_name ) + $public_display;
-
-			$public_display = array_map( 'trim', $public_display );
-			$public_display = array_unique( $public_display );
-
-			foreach ( $public_display as $id => $item ) {
-		?>
-			<option <?php selected( $profileuser->display_name, $item ); ?>><?php echo $item; ?></option>
-		<?php
-			}
-		?>
-		</select>
-	</td>
-</tr>
-</table>
-
-<h3><?php _e('Contact Info') ?></h3>
-
-<table class="form-table">
-<tr>
-	<th><label for="email"><?php _e('E-mail'); ?> <span class="description"><?php _e('(required)'); ?></span></label></th>
-	<td><input type="text" name="email" id="email" value="<?php echo esc_attr($profileuser->user_email) ?>" class="regular-text" />
-	<?php
-	$new_email = get_option( $current_user->ID . '_new_email' );
-	if ( $new_email && $new_email['newemail'] != $current_user->user_email && $profileuser->ID == $current_user->ID ) : ?>
-	<div class="updated inline">
-	<p><?php printf( __('There is a pending change of your e-mail to <code>%1$s</code>. <a href="%2$s">Cancel</a>'), $new_email['newemail'], esc_url( self_admin_url( 'profile.php?dismiss=' . $current_user->ID . '_new_email' ) ) ); ?></p>
-	</div>
-	<?php endif; ?>
-	</td>
-</tr>
-
-<tr>
-	<th><label for="url"><?php _e('Website') ?></label></th>
-	<td><input type="text" name="url" id="url" value="<?php echo esc_attr($profileuser->user_url) ?>" class="regular-text code" /></td>
-</tr>
-
-<?php
-	foreach (_wp_get_user_contactmethods( $profileuser ) as $name => $desc) {
-?>
-<tr>
-	<th><label for="<?php echo $name; ?>"><?php echo apply_filters('user_'.$name.'_label', $desc); ?></label></th>
-	<td><input type="text" name="<?php echo $name; ?>" id="<?php echo $name; ?>" value="<?php echo esc_attr($profileuser->$name) ?>" class="regular-text" /></td>
-</tr>
-<?php
-	}
-?>
-</table>
-
-<h3><?php IS_PROFILE_PAGE ? _e('About Yourself') : _e('About the user'); ?></h3>
-
-<table class="form-table">
-<tr>
-	<th><label for="description"><?php _e('Biographical Info'); ?></label></th>
-	<td><textarea name="description" id="description" rows="5" cols="30"><?php echo $profileuser->description; // textarea_escaped ?></textarea><br />
-	<span class="description"><?php _e('Share a little biographical information to fill out your profile. This may be shown publicly.'); ?></span></td>
-</tr>
-
-<?php
-$show_password_fields = apply_filters('show_password_fields', true, $profileuser);
-if ( $show_password_fields ) :
-?>
-<tr id="password">
-	<th><label for="pass1"><?php _e('New Password'); ?></label></th>
-	<td>
-		<input class="hidden" value=" " /><!-- #24364 workaround -->
-		<input type="password" name="pass1" id="pass1" size="16" value="" autocomplete="off" /> <span class="description"><?php _e("If you would like to change the password type a new one. Otherwise leave this blank."); ?></span>
-	</td>
-</tr>
-<tr>
-	<th scope="row"><label for="pass2"><?php _e('Repeat New Password'); ?></label></th>
-	<td>
-	<input name="pass2" type="password" id="pass2" size="16" value="" autocomplete="off" /> <span class="description" for="pass2"><?php _e("Type your new password again."); ?></span>
-	<br />
-	<div id="pass-strength-result"><?php _e('Strength indicator'); ?></div>
-	<p class="description indicator-hint"><?php _e('Hint: The password should be at least seven characters long. To make it stronger, use upper and lower case letters, numbers and symbols like ! " ? $ % ^ &amp; ).'); ?></p>
-	</td>
-</tr>
-<?php endif; ?>
-</table>
-
-<?php
-	if ( IS_PROFILE_PAGE )
-		do_action( 'show_user_profile', $profileuser );
-	else
-		do_action( 'edit_user_profile', $profileuser );
-?>
-
-<?php if ( count( $profileuser->caps ) > count( $profileuser->roles ) && apply_filters( 'additional_capabilities_display', true, $profileuser ) ) : ?>
-<h3><?php _e( 'Additional Capabilities' ); ?></h3>
-<table class="form-table">
-<tr>
-	<th scope="row"><?php _e( 'Capabilities' ); ?></th>
-	<td>
-<?php
-	$output = '';
-	foreach ( $profileuser->caps as $cap => $value ) {
-		if ( ! $wp_roles->is_role( $cap ) ) {
-			if ( '' != $output )
-				$output .= ', ';
-			$output .= $value ? $cap : sprintf( __( 'Denied: %s' ), $cap );
-		}
-	}
-	echo $output;
-?>
-	</td>
-</tr>
-</table>
-<?php endif; ?>
-
-<input type="hidden" name="action" value="update" />
-<input type="hidden" name="user_id" id="user_id" value="<?php echo esc_attr($user_id); ?>" />
-
-<?php submit_button( IS_PROFILE_PAGE ? __('Update Profile') : __('Update User') ); ?>
-
+				wp_nonce_field('update-user_' . $user_id);
+				wp_nonce_field( 'meta-box-order', 'meta-box-order-nonce', false );
+				wp_nonce_field( 'closedpostboxes', 'closedpostboxesnonce', false ); ?>
+		<?php if ( $wp_http_referer ) : ?>
+		<input type="hidden" name="wp_http_referer" value="<?php echo esc_url($wp_http_referer); ?>" />
+		<?php endif; ?>
+		<p>
+			<input type="hidden" name="from" value="profile" />
+			<input type="hidden" name="checkuser_id" value="<?php echo $user_ID ?>" />
+		</p>
+		<div id="poststuff">
+		<div id="post-body" class="metabox-holder columns-<?php echo 1 == get_current_screen()->get_columns() ? '1' : '2'; ?>">
+			<div id="post-body-content">
+				<div id="postbox-container-1" class="postbox-container">
+					<?php
+						do_meta_boxes( null, 'side', $user_id );
+					?>
+				</div>
+				<div id="postbox-container-2" class="postbox-container">
+					<?php
+						do_meta_boxes(null, 'normal', $user_id);
+					
+						do_meta_boxes(null, 'advanced', $user_id);
+					?>
+				</div>
+			</div>
+			<!-- /post-body --> 
+			<br class="clear" />
+		</div>
+		<!-- /poststuff -->
+	</form>
+</div>
 </form>
 </div>
 <?php
@@ -440,3 +611,4 @@ break;
 </script>
 <?php
 include( ABSPATH . 'wp-admin/admin-footer.php');
+
