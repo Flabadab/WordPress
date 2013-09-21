@@ -509,7 +509,7 @@ add_meta_box( 'biodiv', IS_PROFILE_PAGE ? __('About Yourself') : __('About the u
 
 
 if ( count( $profileuser->caps ) > count( $profileuser->roles ) && apply_filters( 'additional_capabilities_display', true, $profileuser ) ) :
-	add_meta_box( 'biodiv', __('Additional Capabilities'), 'user_additional_capabilities_meta_box', null, 'normal', 'core' );
+	add_meta_box( 'addcapdiv', __('Additional Capabilities'), 'user_additional_capabilities_meta_box', null, 'normal', 'core' );
 endif;
 
 if ( IS_PROFILE_PAGE )
